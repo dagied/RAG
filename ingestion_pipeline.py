@@ -1,8 +1,9 @@
 import os
 from langchain_community.document_loaders import TextLoader, DirectoryLoader
 from langchain_text_splitters import CharacterTextSplitter
-from langchain_openai import OpenAIEmbeddings
+
 from langchain_chroma import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -56,21 +57,30 @@ def split_documents(documents, chunk_size=800, chunk_overlap=0):
 
   return chunks
 
-def create_vector_store(chunks, persist_directory="db/chroma_db"):
+import time
+
+def create_vector_store(chunks, persist_directory="db/chroma_db", batch_size=100):
   print("creating a vector for these chunks and store them in chroma db")
 
-  embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
+  embedding_model = HuggingFaceEmbeddings(
+    model_name="sentence-transformers/all-MiniLM-L6-v2"
+  )
 
-  #creating vector store
-  print("___ Creating Vector Store ___")
-  vectorStore = Chroma.from_documents(
-    documents=chunks,
-    embedding=embedding_model,
+  vectorStore = Chroma(
     persist_directory=persist_directory,
+    embedding_function=embedding_model,
     collection_metadata={"hnsw:space": "cosine"}
   )
+
+  done = vectorStore._collection.count()
+  if done:
+    print(f"resuming, {done} chunks already stored")
+
+  for i in range(done, len(chunks), batch_size):
+    vectorStore.add_documents(chunks[i:i + batch_size])
+    print(f"embedded {min(i + batch_size, len(chunks))}/{len(chunks)} chunks")
+
   print("finished")
-  print(f"vectors saved in to {persist_directory}")
   return vectorStore
 
 def main():
